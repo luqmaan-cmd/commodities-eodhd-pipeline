@@ -1,0 +1,223 @@
+# EODHD Commodities Configuration
+# Central source of truth for all tracked commodities.
+# Symbol format for API: {api_code}  e.g. GC.COMM
+
+commodities:
+  # ── Energy ──────────────────────────────────────
+  - symbol: CL
+    name: Crude Oil (WTI)
+    api_code: CL.COMM
+    category: Energy
+
+  - symbol: BZ
+    name: Brent Crude
+    api_code: BZ.COMM
+    category: Energy
+
+  - symbol: NG
+    name: Natural Gas
+    api_code: NG.COMM
+    category: Energy
+
+  - symbol: HO
+    name: Heating Oil
+    api_code: HO.COMM
+    category: Energy
+
+  - symbol: RB
+    name: RBOB Gasoline
+    api_code: RB.COMM
+    category: Energy
+
+  - symbol: EH
+    name: Ethanol
+    api_code: EH.COMM
+    category: Energy
+
+  - symbol: NCFY
+    name: Newcastle Coal
+    api_code: NCFY.COMM
+    category: Energy
+
+  # ── Precious Metals ─────────────────────────────
+  - symbol: GC
+    name: Gold (COMEX)
+    api_code: GC.COMM
+    category: Precious Metals
+
+  - symbol: SI
+    name: Silver
+    api_code: SI.COMM
+    category: Precious Metals
+
+  - symbol: PL
+    name: Platinum
+    api_code: PL.COMM
+    category: Precious Metals
+
+  - symbol: PA
+    name: Palladium
+    api_code: PA.COMM
+    category: Precious Metals
+
+  # ── Industrial Metals ───────────────────────────
+  - symbol: HG
+    name: Copper
+    api_code: HG.COMM
+    category: Industrial Metals
+    anomaly_threshold: 500.0  # EODHD returns data in different denominations (unit changes)
+
+  - symbol: ALI
+    name: Aluminum (COMEX)
+    api_code: ALI.COMM
+    category: Industrial Metals
+
+  - symbol: NICKEL
+    name: Nickel
+    api_code: NICKEL.COMM
+    category: Industrial Metals
+
+  - symbol: HRC
+    name: Hot-Rolled Coil Steel
+    api_code: HRC.COMM
+    category: Industrial Metals
+
+  - symbol: TIO
+    name: Iron Ore 62% Fe
+    api_code: TIO.COMM
+    category: Industrial Metals
+
+  # ── Grains ──────────────────────────────────────
+  - symbol: ZC
+    name: Corn
+    api_code: ZC.COMM
+    category: Grains
+
+  - symbol: ZS
+    name: Soybean
+    api_code: ZS.COMM
+    category: Grains
+
+  - symbol: SM
+    name: Soybean Meal
+    api_code: SM.COMM
+    category: Grains
+
+  - symbol: ZL
+    name: Soybean Oil
+    api_code: ZL.COMM
+    category: Grains
+
+  - symbol: W
+    name: Wheat (CBOT)
+    api_code: W.COMM
+    category: Grains
+
+  - symbol: KE
+    name: KC Hard Red Winter Wheat
+    api_code: KE.COMM
+    category: Grains
+
+  - symbol: EBM
+    name: Milling Wheat N2
+    api_code: EBM.COMM
+    category: Grains
+    anomaly_threshold: 500.0  # EODHD returns data in different denominations (contract rolls)
+
+  - symbol: EMA
+    name: Maize (Paris)
+    api_code: EMA.COMM
+    category: Grains
+
+  - symbol: O
+    name: Oats
+    api_code: O.COMM
+    category: Grains
+
+  - symbol: ZR
+    name: Rough Rice
+    api_code: ZR.COMM
+    category: Grains
+
+  # ── Softs ───────────────────────────────────────
+  - symbol: KC
+    name: Coffee
+    api_code: KC.COMM
+    category: Softs
+
+  - symbol: CC
+    name: Cocoa
+    api_code: CC.COMM
+    category: Softs
+
+  - symbol: SB
+    name: Sugar
+    api_code: SB.COMM
+    category: Softs
+
+  - symbol: CT
+    name: Cotton
+    api_code: CT.COMM
+    category: Softs
+
+  - symbol: OJ
+    name: Orange Juice
+    api_code: OJ.COMM
+    category: Softs
+
+  - symbol: RU
+    name: Rubber
+    api_code: RU.COMM
+    category: Softs
+
+  - symbol: CPO
+    name: Palm Oil
+    api_code: CPO.COMM
+    category: Softs
+
+  # ── Livestock & Dairy ───────────────────────────
+  - symbol: LE
+    name: Live Cattle
+    api_code: LE.COMM
+    category: Livestock & Dairy
+
+  - symbol: FC
+    name: Feeder Cattle
+    api_code: FC.COMM
+    category: Livestock & Dairy
+
+  - symbol: HE
+    name: Lean Hogs
+    api_code: HE.COMM
+    category: Livestock & Dairy
+
+  - symbol: DC
+    name: Class III Milk
+    api_code: DC.COMM
+    category: Livestock & Dairy
+
+  - symbol: GDK
+    name: Class IV Milk
+    api_code: GDK.COMM
+    category: Livestock & Dairy
+
+  - symbol: CB
+    name: Cash-settled Butter
+    api_code: CB.COMM
+    category: Livestock & Dairy
+
+  - symbol: DY
+    name: Dry Whey
+    api_code: DY.COMM
+    category: Livestock & Dairy
+
+  # ── Other ───────────────────────────────────────
+  - symbol: LBR
+    name: Lumber
+    api_code: LBR.COMM
+    category: Other
+
+  - symbol: LGOc3
+    name: Gas Oil
+    api_code: LGOc3.COMM
+    category: Other

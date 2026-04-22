@@ -1,0 +1,35 @@
+# EODHD Commodities Pipeline — Docker Compose
+#
+# Usage:
+#   Daily run:       docker compose run --rm daily
+#   Backfill:        docker compose run --rm backfill
+#   Backfill (1 sym): docker compose run --rm -e PIPELINE_ARGS="--symbol GC" backfill
+#
+# For Cloud Run deployment, see the deploy commands in the README.
+
+services:
+  # ── Daily ingestion (default) ──────────────────────────────────────────────
+  daily:
+    build: .
+    environment:
+      - PIPELINE_MODE=daily
+      - EODHD_API_KEY=${EODHD_API_KEY}
+      - DB_URL=${DB_URL}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gcp-key.json
+    volumes:
+      # Mount GCP credentials as read-only — never baked into the image
+      - ./testgke-412710-fded8bee5457.json:/app/secrets/gcp-key.json:ro
+
+  # ── One-time backfill ──────────────────────────────────────────────────────
+  backfill:
+    build: .
+    environment:
+      - PIPELINE_MODE=backfill
+      - EODHD_API_KEY=${EODHD_API_KEY}
+      - DB_URL=${DB_URL}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/gcp-key.json
+      - PIPELINE_ARGS=${PIPELINE_ARGS:-}
+    volumes:
+      - ./testgke-412710-fded8bee5457.json:/app/secrets/gcp-key.json:ro

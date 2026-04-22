@@ -1,0 +1,36 @@
+# ── Secrets — NEVER include these in the Docker image ──────────────────────────
+.env
+.env.*
+*.json
+!package.json
+
+# ── GCP credentials — mounted at runtime, never baked in ──────────────────────
+testgke-*.json
+
+# ── Python artefacts ─────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ── Test / CI ─────────────────────────────────────────────────────────────────
+.pytest_cache/
+tests/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Docs / misc ──────────────────────────────────────────────────────────────
+PIPELINE_LOGIC.md
+README.md
+Dockerfile
+docker-compose.yml
+.dockerignore
