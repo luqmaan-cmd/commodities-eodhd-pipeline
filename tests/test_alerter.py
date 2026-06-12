@@ -127,6 +127,8 @@ class TestAlertSuccessSummary:
             target_date="2026-04-20",
             total_symbols=42,
             successful=42,
+            no_data=0,
+            no_data_symbols=[],
             failed=0,
             failed_symbols=[],
             total_rows_upserted=40,
@@ -149,6 +151,8 @@ class TestAlertSuccessSummary:
             target_date="2026-04-20",
             total_symbols=42,
             successful=40,
+            no_data=0,
+            no_data_symbols=[],
             failed=2,
             failed_symbols=["CL", "NG"],
             total_rows_upserted=38,
@@ -172,6 +176,8 @@ class TestAlertSuccessSummary:
             target_date="2026-04-20",
             total_symbols=42,
             successful=42,
+            no_data=0,
+            no_data_symbols=[],
             failed=0,
             failed_symbols=[],
             total_rows_upserted=40,
@@ -193,6 +199,8 @@ class TestAlertSuccessSummary:
             target_date="2026-04-20",
             total_symbols=42,
             successful=42,
+            no_data=0,
+            no_data_symbols=[],
             failed=0,
             failed_symbols=[],
             total_rows_upserted=40,
@@ -202,3 +210,56 @@ class TestAlertSuccessSummary:
 
         call_kwargs = mock_post.call_args[1]
         assert "12.3s" in call_kwargs["json"]["text"]
+
+    @patch("src.alerter.requests.post")
+    def test_no_data_symbols_included_when_nonzero(self, mock_post):
+        """When some commodities return no data, they should appear in the summary."""
+        mock_post.return_value = MagicMock(status_code=200)
+
+        alerter = Alerter(webhook_url="https://hooks.slack.com/test")
+        alerter.alert_success_summary(
+            target_date="2026-04-20",
+            total_symbols=42,
+            successful=37,
+            no_data=5,
+            no_data_symbols=["CC", "CPO", "EH", "RU", "SB"],
+            failed=0,
+            failed_symbols=[],
+            total_rows_upserted=37,
+            total_rows_rejected=0,
+            run_duration_seconds=10.0,
+        )
+
+        call_kwargs = mock_post.call_args[1]
+        text = call_kwargs["json"]["text"]
+        assert "No data returned: 5" in text
+        assert "CC" in text
+        assert "CPO" in text
+        assert "EH" in text
+        assert "RU" in text
+        assert "SB" in text
+        # Should still use info level since no failures
+        assert ":information_source:" in text
+
+    @patch("src.alerter.requests.post")
+    def test_no_data_line_absent_when_zero(self, mock_post):
+        """When no_data is 0, the 'No data returned' line should not appear."""
+        mock_post.return_value = MagicMock(status_code=200)
+
+        alerter = Alerter(webhook_url="https://hooks.slack.com/test")
+        alerter.alert_success_summary(
+            target_date="2026-04-20",
+            total_symbols=42,
+            successful=42,
+            no_data=0,
+            no_data_symbols=[],
+            failed=0,
+            failed_symbols=[],
+            total_rows_upserted=40,
+            total_rows_rejected=0,
+            run_duration_seconds=10.0,
+        )
+
+        call_kwargs = mock_post.call_args[1]
+        text = call_kwargs["json"]["text"]
+        assert "No data returned" not in text

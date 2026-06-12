@@ -104,6 +104,7 @@ def _process_commodity_backfill(
 
         if not prices:
             logger.warning(f"No data returned for {commodity.symbol}")
+            result.status = "no_data"
             return result
 
         # ── Sort by date ascending for in-memory prev_close tracking ──────
@@ -221,6 +222,7 @@ def _process_commodity_daily(
 
         if not prices:
             logger.warning(f"No data returned for {commodity.symbol}")
+            result.status = "no_data"
             return result
 
         # ── Validate ──────────────────────────────────────────────────────
@@ -362,6 +364,9 @@ def run_backfill(
                 if result.status == "success":
                     summary.successful += 1
                     summary.successful_symbols.append(symbol)
+                elif result.status == "no_data":
+                    summary.no_data += 1
+                    summary.no_data_symbols.append(symbol)
                 else:
                     summary.failed += 1
                     summary.failed_symbols.append(symbol)
@@ -457,6 +462,9 @@ def run_daily(
                 if result.status == "success":
                     summary.successful += 1
                     summary.successful_symbols.append(symbol)
+                elif result.status == "no_data":
+                    summary.no_data += 1
+                    summary.no_data_symbols.append(symbol)
                 else:
                     summary.failed += 1
                     summary.failed_symbols.append(symbol)
@@ -467,7 +475,10 @@ def run_daily(
 
         # ── Post-ingestion validation (sequential, after all workers done) ──
         expected_symbols = {c.symbol for c in commodities}
-        alerts = validate_post_ingestion(shared_db.connection, target_date_str, expected_symbols)
+        alerts = validate_post_ingestion(
+            shared_db.connection, target_date_str, expected_symbols,
+            known_no_data_symbols=set(summary.no_data_symbols),
+        )
 
         if alerts:
             alerter.alert_validation_failures(alerts)
@@ -500,6 +511,8 @@ def run_daily(
         target_date=target_date_str,
         total_symbols=summary.total_symbols,
         successful=summary.successful,
+        no_data=summary.no_data,
+        no_data_symbols=summary.no_data_symbols,
         failed=summary.failed,
         failed_symbols=summary.failed_symbols,
         total_rows_upserted=summary.total_rows_upserted,

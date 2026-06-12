@@ -92,7 +92,7 @@ class CommodityRunResult:
     """Result of processing a single commodity in a pipeline run."""
 
     symbol: str
-    status: str  # "success" or "failed"
+    status: str  # "success", "no_data", or "failed"
     rows_fetched: int = 0
     rows_valid: int = 0
     rows_rejected: int = 0
@@ -110,8 +110,10 @@ class PipelineRunSummary:
     target_date: Optional[str] = None
     total_symbols: int = 0
     successful: int = 0
+    no_data: int = 0
     failed: int = 0
     failed_symbols: list[str] = field(default_factory=list)
+    no_data_symbols: list[str] = field(default_factory=list)
     successful_symbols: list[str] = field(default_factory=list)
     total_rows_upserted: int = 0
     total_rows_rejected: int = 0

@@ -109,6 +109,23 @@ class TestProcessCommodityBackfill:
         assert result.rows_rejected == 0
         mock_db_instance.insert_rejected_rows.assert_not_called()
 
+    @patch("src.pipeline.Database")
+    def test_no_data_status_when_api_returns_empty(self, MockDatabase):
+        """When API returns no prices, status should be 'no_data'."""
+        commodity = self._make_commodity()
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = []  # Empty response
+
+        mock_db_instance = MagicMock()
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_backfill(commodity, mock_client, "postgresql://test")
+
+        assert result.status == "no_data"
+        assert result.rows_fetched == 0
+        assert result.rows_upserted == 0
+
 
 # ── is_trading_day ────────────────────────────────────────────────────────────
 
@@ -173,41 +190,10 @@ class TestRunDailyAlerts:
         call_kwargs = mock_alerter_instance.alert_success_summary.call_args[1]
         assert call_kwargs["total_symbols"] == 2
         assert call_kwargs["successful"] == 2
+        assert call_kwargs["no_data"] == 0
+        assert call_kwargs["no_data_symbols"] == []
         assert call_kwargs["failed"] == 0
         assert call_kwargs["total_rows_upserted"] == 2
-
-    @patch("src.pipeline.Alerter")
-    @patch("src.pipeline.EODHDClient")
-    @patch("src.pipeline._process_commodity_daily")
-    @patch("src.pipeline.load_commodities")
-    @patch("src.pipeline.Database")
-    def test_zero_data_alert_on_trading_day(
-        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
-    ):
-        """Zero-data alert should fire when 0 rows upserted on a trading day."""
-        mock_load.return_value = self._make_commodities()
-
-        # Both commodities return 0 rows upserted
-        mock_process.side_effect = [
-            CommodityRunResult(symbol="GC", status="success", rows_upserted=0),
-            CommodityRunResult(symbol="CL", status="success", rows_upserted=0),
-        ]
-
-        mock_db_instance = MagicMock()
-        mock_db_instance.get_latest_date.return_value = "2026-04-17"
-        MockDB.return_value = mock_db_instance
-        MockDB.create.return_value = mock_db_instance
-
-        mock_alerter_instance = MagicMock()
-        MockAlerter.return_value = mock_alerter_instance
-
-        run_daily(
-            api_key="test-key",
-            db_url="postgresql://test",
-            target_date=date(2026, 4, 20),  # Monday — trading day
-        )
-
-        mock_alerter_instance.alert_zero_data_ingested.assert_called_once_with("2026-04-20")
 
     @patch("src.pipeline.Alerter")
     @patch("src.pipeline.EODHDClient")
@@ -221,8 +207,8 @@ class TestRunDailyAlerts:
         mock_load.return_value = self._make_commodities()
 
         mock_process.side_effect = [
-            CommodityRunResult(symbol="GC", status="success", rows_upserted=0),
-            CommodityRunResult(symbol="CL", status="success", rows_upserted=0),
+            CommodityRunResult(symbol="GC", status="no_data", rows_upserted=0),
+            CommodityRunResult(symbol="CL", status="no_data", rows_upserted=0),
         ]
 
         mock_db_instance = MagicMock()
@@ -340,6 +326,107 @@ class TestRunDailyAlerts:
         assert "CL" not in summary.successful_symbols
         assert "CL" in summary.failed_symbols
 
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_no_data_symbols_tracked_in_summary(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """no_data symbols should be tracked separately from success and failed."""
+        mock_load.return_value = self._make_commodities()
+
+        mock_process.side_effect = [
+            CommodityRunResult(symbol="GC", status="success", rows_upserted=1),
+            CommodityRunResult(symbol="CL", status="no_data", rows_upserted=0),
+        ]
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-20"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        MockAlerter.return_value = MagicMock()
+
+        summary = run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 20),
+        )
+
+        assert summary.successful == 1
+        assert summary.no_data == 1
+        assert "GC" in summary.successful_symbols
+        assert "CL" in summary.no_data_symbols
+        assert "CL" not in summary.failed_symbols
+
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_no_data_symbols_passed_to_success_summary(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """alert_success_summary should receive no_data and no_data_symbols."""
+        mock_load.return_value = self._make_commodities()
+
+        mock_process.side_effect = [
+            CommodityRunResult(symbol="GC", status="success", rows_upserted=1),
+            CommodityRunResult(symbol="CL", status="no_data", rows_upserted=0),
+        ]
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-20"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        mock_alerter_instance = MagicMock()
+        MockAlerter.return_value = mock_alerter_instance
+
+        run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 20),
+        )
+
+        call_kwargs = mock_alerter_instance.alert_success_summary.call_args[1]
+        assert call_kwargs["no_data"] == 1
+        assert call_kwargs["no_data_symbols"] == ["CL"]
+
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_no_data_does_not_trigger_pipeline_failure_alert(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """no_data status should NOT trigger the pipeline failure alert."""
+        mock_load.return_value = self._make_commodities()
+
+        mock_process.side_effect = [
+            CommodityRunResult(symbol="GC", status="no_data", rows_upserted=0),
+            CommodityRunResult(symbol="CL", status="no_data", rows_upserted=0),
+        ]
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-17"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        mock_alerter_instance = MagicMock()
+        MockAlerter.return_value = mock_alerter_instance
+
+        run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 25),  # Saturday
+        )
+
+        mock_alerter_instance.alert_pipeline_failure.assert_not_called()
+
 
 # ── Rejected row storage (continued) ─────────────────────────────────────────
 
@@ -431,3 +518,23 @@ class TestRejectedRowStorageDaily:
 
         assert result.rows_rejected == 0
         mock_db_instance.insert_rejected_rows.assert_not_called()
+
+    @patch("src.pipeline.Database")
+    def test_daily_no_data_status_when_api_returns_empty(self, MockDatabase):
+        """When API returns no prices in daily mode, status should be 'no_data'."""
+        commodity = self._make_commodity()
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = []  # Empty response
+
+        mock_db_instance = MagicMock()
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_daily(
+            commodity, mock_client, "postgresql://test",
+            from_date=date(2026, 4, 21), to_date=date(2026, 4, 21),
+        )
+
+        assert result.status == "no_data"
+        assert result.rows_fetched == 0
+        assert result.rows_upserted == 0

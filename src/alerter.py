@@ -107,11 +107,13 @@ class Alerter:
         target_date: str,
         total_symbols: int,
         successful: int,
-        failed: int,
-        failed_symbols: list[str],
-        total_rows_upserted: int,
-        total_rows_rejected: int,
-        run_duration_seconds: float,
+        no_data: int = 0,
+        no_data_symbols: Optional[list[str]] = None,
+        failed: int = 0,
+        failed_symbols: Optional[list[str]] = None,
+        total_rows_upserted: int = 0,
+        total_rows_rejected: int = 0,
+        run_duration_seconds: float = 0.0,
     ) -> None:
         """Send a success summary alert after a daily pipeline run.
 
@@ -123,15 +125,20 @@ class Alerter:
 
         lines = [
             f"*Daily Run — {target_date}*",
-            f"Commodities: {commodity_str} succeeded",
+            f"Commodities: {commodity_str} with data",
             f"Rows upserted: {total_rows_upserted}",
         ]
+
+        if no_data > 0:
+            lines.append(
+                f"No data returned: {no_data} ({', '.join(no_data_symbols or [])})"
+            )
 
         if total_rows_rejected > 0:
             lines.append(f"Rows rejected: {total_rows_rejected}")
 
         if failed > 0:
-            lines.append(f"Failed: {failed} ({', '.join(failed_symbols)})")
+            lines.append(f"Failed: {failed} ({', '.join(failed_symbols or [])})")
 
         lines.append(f"Duration: {duration_str}")
 

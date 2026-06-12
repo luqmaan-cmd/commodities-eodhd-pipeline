@@ -219,6 +219,50 @@ class TestPostIngestion:
         assert len(alerts) >= 1
         assert any("Missing" in a or "Row count" in a for a in alerts)
 
+    def test_known_no_data_symbols_excluded_from_missing_check(self):
+        """Symbols that returned no data from the API should not trigger missing alerts."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)  # Check 7: 1 row (expected 2 - 1 known_no_data)
+        # Check 9: only GC found; Check 10: no null rows
+        mock_cursor.fetchall.side_effect = [
+            [("GC",)],  # Check 9 — CL missing but it's in known_no_data_symbols
+            [],          # Check 10 — no null price rows
+        ]
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        alerts = validate_post_ingestion(
+            mock_conn,
+            "2026-04-21",
+            {"GC", "CL"},
+            known_no_data_symbols={"CL"},
+        )
+        # CL is excluded from the missing check since it's in known_no_data_symbols
+        assert not any("Missing" in a for a in alerts)
+
+    def test_row_count_adjusted_for_known_no_data(self):
+        """Row count check should expect (total - known_no_data) rows."""
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)  # Check 7: 1 row
+        # Check 9: only GC found; Check 10: no null rows
+        mock_cursor.fetchall.side_effect = [
+            [("GC",)],  # Check 9 — CL is known no-data
+            [],          # Check 10 — no null price rows
+        ]
+
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        alerts = validate_post_ingestion(
+            mock_conn,
+            "2026-04-21",
+            {"GC", "CL"},
+            known_no_data_symbols={"CL"},
+        )
+        # Expected count = 2 - 1 = 1, actual = 1, so no row count alert
+        assert not any("Row count" in a for a in alerts)
+
 
 # ── Schema validation ────────────────────────────────────────────────────────
 

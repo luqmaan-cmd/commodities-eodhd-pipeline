@@ -148,6 +148,7 @@ def validate_post_ingestion(
     db_connection,
     target_date: str,
     expected_symbols: set[str],
+    known_no_data_symbols: Optional[set[str]] = None,
 ) -> list[str]:
     """Run post-ingestion validation checks (checks 7-10 from PIPELINE_LOGIC.md).
 
@@ -155,12 +156,16 @@ def validate_post_ingestion(
         db_connection: An open psycopg2 connection.
         target_date: The date that was ingested (YYYY-MM-DD).
         expected_symbols: Set of all 42 commodity symbols.
+        known_no_data_symbols: Symbols that already returned no data from the API.
+                               These are excluded from the "missing symbols" check
+                               since they're already reported in the summary alert.
 
     Returns:
         List of alert messages (empty if everything is fine).
     """
     alerts: list[str] = []
     cursor = db_connection.cursor()
+    known_no_data = known_no_data_symbols or set()
 
     # ── Check 7: Row count for target date ────────────────────────────────
     cursor.execute(
@@ -168,9 +173,10 @@ def validate_post_ingestion(
         (target_date,),
     )
     row_count = cursor.fetchone()[0]
-    if row_count != len(expected_symbols):
+    expected_count = len(expected_symbols) - len(known_no_data)
+    if row_count != expected_count:
         alerts.append(
-            f"Row count for {target_date}: expected {len(expected_symbols)}, "
+            f"Row count for {target_date}: expected {expected_count}, "
             f"got {row_count}"
         )
 
@@ -180,7 +186,7 @@ def validate_post_ingestion(
         (target_date,),
     )
     found_symbols = {row[0] for row in cursor.fetchall()}
-    missing = expected_symbols - found_symbols
+    missing = (expected_symbols - known_no_data) - found_symbols
     if missing:
         alerts.append(
             f"Missing symbols for {target_date}: {sorted(missing)}"
