@@ -538,3 +538,254 @@ class TestRejectedRowStorageDaily:
         assert result.status == "no_data"
         assert result.rows_fetched == 0
         assert result.rows_upserted == 0
+
+
+# ── Daily lookback window ─────────────────────────────────────────────────────
+
+class TestDailyLookback:
+    """Tests for the 2-day lookback window in daily mode."""
+
+    def _make_commodity(self):
+        return CommodityConfig(
+            symbol="GC", name="Gold", api_code="GC.COMM", category="Precious Metals"
+        )
+
+    def _make_prices(self, primary_date):
+        """Create 3 price rows: primary_date, primary_date-1, primary_date-2."""
+        from datetime import timedelta
+        return [
+            CommodityPrice(
+                date=primary_date - timedelta(days=2), symbol="GC", name="Gold",
+                open=3100, high=3150, low=3090, close=3120,
+                adjusted_close=3120, volume=1000,
+            ),
+            CommodityPrice(
+                date=primary_date - timedelta(days=1), symbol="GC", name="Gold",
+                open=3120, high=3180, low=3110, close=3160,
+                adjusted_close=3160, volume=1200,
+            ),
+            CommodityPrice(
+                date=primary_date, symbol="GC", name="Gold",
+                open=3160, high=3200, low=3150, close=3190,
+                adjusted_close=3190, volume=1100,
+            ),
+        ]
+
+    @patch("src.pipeline.Database")
+    def test_primary_rows_upserted_lookback_rows_insert_if_missing(self, MockDatabase):
+        """Primary date rows should use upsert; lookback rows should use insert_if_missing."""
+        commodity = self._make_commodity()
+        primary_date = date(2026, 4, 21)
+        prices = self._make_prices(primary_date)
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = prices
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_previous_close.return_value = None
+        mock_db_instance.upsert_rows.return_value = 1
+        mock_db_instance.insert_if_missing_rows.return_value = 2
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_daily(
+            commodity, mock_client, "postgresql://test",
+            from_date=date(2026, 4, 19), to_date=primary_date,
+            primary_date=primary_date,
+        )
+
+        # Primary row should be upserted
+        mock_db_instance.upsert_rows.assert_called_once()
+        upserted_rows = mock_db_instance.upsert_rows.call_args[0][0]
+        assert len(upserted_rows) == 1
+        assert upserted_rows[0].date == primary_date
+
+        # Lookback rows should use insert_if_missing
+        mock_db_instance.insert_if_missing_rows.assert_called_once()
+        lookback_rows = mock_db_instance.insert_if_missing_rows.call_args[0][0]
+        assert len(lookback_rows) == 2
+        assert all(r.date < primary_date for r in lookback_rows)
+
+    @patch("src.pipeline.Database")
+    def test_rows_backfilled_tracked_in_result(self, MockDatabase):
+        """rows_backfilled in the result should reflect insert_if_missing_rows return value."""
+        commodity = self._make_commodity()
+        primary_date = date(2026, 4, 21)
+        prices = self._make_prices(primary_date)
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = prices
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_previous_close.return_value = None
+        mock_db_instance.upsert_rows.return_value = 1
+        mock_db_instance.insert_if_missing_rows.return_value = 1  # Only 1 of 2 was new
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_daily(
+            commodity, mock_client, "postgresql://test",
+            from_date=date(2026, 4, 19), to_date=primary_date,
+            primary_date=primary_date,
+        )
+
+        assert result.rows_backfilled == 1
+        assert result.rows_upserted == 1
+
+    @patch("src.pipeline.Database")
+    def test_no_primary_date_upserts_everything(self, MockDatabase):
+        """Without primary_date set, all rows should be upserted (backward compatible)."""
+        commodity = self._make_commodity()
+        primary_date = date(2026, 4, 21)
+        prices = self._make_prices(primary_date)
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = prices
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_previous_close.return_value = None
+        mock_db_instance.upsert_rows.return_value = 3
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_daily(
+            commodity, mock_client, "postgresql://test",
+            from_date=date(2026, 4, 19), to_date=primary_date,
+            # primary_date NOT set
+        )
+
+        # All rows upserted, no insert_if_missing call
+        mock_db_instance.upsert_rows.assert_called_once()
+        all_rows = mock_db_instance.upsert_rows.call_args[0][0]
+        assert len(all_rows) == 3
+        mock_db_instance.insert_if_missing_rows.assert_not_called()
+        assert result.rows_backfilled == 0
+
+    @patch("src.pipeline.Database")
+    def test_only_primary_date_no_lookback_rows(self, MockDatabase):
+        """If API only returns the primary date, no lookback insert should happen."""
+        commodity = self._make_commodity()
+        primary_date = date(2026, 4, 21)
+        prices = [
+            CommodityPrice(
+                date=primary_date, symbol="GC", name="Gold",
+                open=3160, high=3200, low=3150, close=3190,
+                adjusted_close=3190, volume=1100,
+            ),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.fetch_eod.return_value = prices
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_previous_close.return_value = None
+        mock_db_instance.upsert_rows.return_value = 1
+        MockDatabase.create.return_value = mock_db_instance
+
+        result = _process_commodity_daily(
+            commodity, mock_client, "postgresql://test",
+            from_date=date(2026, 4, 19), to_date=primary_date,
+            primary_date=primary_date,
+        )
+
+        mock_db_instance.upsert_rows.assert_called_once()
+        mock_db_instance.insert_if_missing_rows.assert_not_called()
+        assert result.rows_backfilled == 0
+        assert result.rows_upserted == 1
+
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_run_daily_passes_3day_window(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """run_daily should pass from_date=target-2, to_date=target, primary_date=target."""
+        mock_load.return_value = [
+            CommodityConfig(symbol="GC", name="Gold", api_code="GC.COMM", category="Precious Metals"),
+        ]
+
+        mock_process.return_value = CommodityRunResult(
+            symbol="GC", status="success", rows_upserted=1,
+        )
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-21"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 21),
+        )
+
+        # Verify _process_commodity_daily was called with the 3-day window
+        call_kwargs = mock_process.call_args[1]
+        assert call_kwargs["from_date"] == date(2026, 4, 19)  # target - 2
+        assert call_kwargs["to_date"] == date(2026, 4, 21)    # target
+        assert call_kwargs["primary_date"] == date(2026, 4, 21)  # target
+
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_run_daily_tracks_total_rows_backfilled(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """run_daily summary should accumulate total_rows_backfilled from results."""
+        mock_load.return_value = [
+            CommodityConfig(symbol="GC", name="Gold", api_code="GC.COMM", category="Precious Metals"),
+            CommodityConfig(symbol="CL", name="Crude Oil", api_code="CL.COMM", category="Energy"),
+        ]
+
+        mock_process.side_effect = [
+            CommodityRunResult(symbol="GC", status="success", rows_upserted=1, rows_backfilled=2),
+            CommodityRunResult(symbol="CL", status="success", rows_upserted=1, rows_backfilled=1),
+        ]
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-21"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        summary = run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 21),
+        )
+
+        assert summary.total_rows_backfilled == 3  # 2 + 1
+
+    @patch("src.pipeline.Alerter")
+    @patch("src.pipeline.EODHDClient")
+    @patch("src.pipeline._process_commodity_daily")
+    @patch("src.pipeline.load_commodities")
+    @patch("src.pipeline.Database")
+    def test_run_daily_backfilled_in_success_summary(
+        self, MockDB, mock_load, mock_process, MockClient, MockAlerter
+    ):
+        """alert_success_summary should receive total_rows_backfilled."""
+        mock_load.return_value = [
+            CommodityConfig(symbol="GC", name="Gold", api_code="GC.COMM", category="Precious Metals"),
+        ]
+
+        mock_process.return_value = CommodityRunResult(
+            symbol="GC", status="success", rows_upserted=1, rows_backfilled=2,
+        )
+
+        mock_db_instance = MagicMock()
+        mock_db_instance.get_latest_date.return_value = "2026-04-21"
+        MockDB.return_value = mock_db_instance
+        MockDB.create.return_value = mock_db_instance
+
+        mock_alerter_instance = MagicMock()
+        MockAlerter.return_value = mock_alerter_instance
+
+        run_daily(
+            api_key="test-key",
+            db_url="postgresql://test",
+            target_date=date(2026, 4, 21),
+        )
+
+        call_kwargs = mock_alerter_instance.alert_success_summary.call_args[1]
+        assert call_kwargs["total_rows_backfilled"] == 2

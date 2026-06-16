@@ -97,6 +97,7 @@ class CommodityRunResult:
     rows_valid: int = 0
     rows_rejected: int = 0
     rows_upserted: int = 0
+    rows_backfilled: int = 0
     api_response_time_ms: Optional[int] = None
     validation_warnings: list[str] = field(default_factory=list)
     error: Optional[str] = None
@@ -116,5 +117,6 @@ class PipelineRunSummary:
     no_data_symbols: list[str] = field(default_factory=list)
     successful_symbols: list[str] = field(default_factory=list)
     total_rows_upserted: int = 0
+    total_rows_backfilled: int = 0
     total_rows_rejected: int = 0
     run_duration_seconds: float = 0.0

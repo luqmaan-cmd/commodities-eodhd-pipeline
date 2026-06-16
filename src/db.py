@@ -27,6 +27,15 @@ DO UPDATE SET
     ingestion_ts   = EXCLUDED.ingestion_ts;
 """
 
+# ── Insert-if-missing (for daily lookback — does NOT replace existing rows) ──
+INSERT_IF_MISSING_SQL = """
+INSERT INTO commodities_eod (date, symbol, name, open, high, low, close,
+                              adjusted_close, volume, ingestion_ts)
+VALUES %s
+ON CONFLICT (date, symbol)
+DO NOTHING;
+"""
+
 # ── Rejected rows insert ──────────────────────────────────────────────────────
 INSERT_REJECTED_SQL = """
 INSERT INTO commodities_eod_rejected (date, symbol, name, open, high, low, close,
@@ -123,6 +132,45 @@ class Database:
         except Exception as exc:
             self.connection.rollback()
             logger.error(f"Upsert failed, rolled back: {exc}")
+            raise
+        finally:
+            cursor.close()
+
+    def insert_if_missing_rows(self, rows: list[CommodityPrice]) -> int:
+        """Batch-insert rows, skipping any that already exist (ON CONFLICT DO NOTHING).
+
+        Used for the daily lookback window — prior-day rows are only inserted
+        if they are missing from the table. Existing rows are NOT replaced.
+
+        Args:
+            rows: List of CommodityPrice objects to insert.
+
+        Returns:
+            Number of rows actually inserted (excludes skipped duplicates).
+        """
+        if not rows:
+            return 0
+
+        values = [row.as_tuple() for row in rows]
+
+        cursor = self.connection.cursor()
+        try:
+            psycopg2.extras.execute_values(
+                cursor,
+                INSERT_IF_MISSING_SQL,
+                values,
+                page_size=500,
+            )
+            inserted = cursor.rowcount
+            self.connection.commit()
+            logger.info(
+                f"Insert-if-missing: {inserted}/{len(rows)} rows inserted "
+                f"({len(rows) - inserted} already existed)"
+            )
+            return inserted
+        except Exception as exc:
+            self.connection.rollback()
+            logger.error(f"Insert-if-missing failed, rolled back: {exc}")
             raise
         finally:
             cursor.close()

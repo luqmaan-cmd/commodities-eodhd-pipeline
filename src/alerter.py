@@ -112,6 +112,7 @@ class Alerter:
         failed: int = 0,
         failed_symbols: Optional[list[str]] = None,
         total_rows_upserted: int = 0,
+        total_rows_backfilled: int = 0,
         total_rows_rejected: int = 0,
         run_duration_seconds: float = 0.0,
     ) -> None:
@@ -128,6 +129,9 @@ class Alerter:
             f"Commodities: {commodity_str} with data",
             f"Rows upserted: {total_rows_upserted}",
         ]
+
+        if total_rows_backfilled > 0:
+            lines.append(f"Rows backfilled (lookback): {total_rows_backfilled}")
 
         if no_data > 0:
             lines.append(

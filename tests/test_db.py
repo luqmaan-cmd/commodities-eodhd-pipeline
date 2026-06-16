@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, "/Users/luqmaan2000/EODHD - Commodities")
 
 from src.db import Database
-from src.models import RejectedRow
+from src.models import CommodityPrice, RejectedRow
 
 
 # ── Database.create() factory method ──────────────────────────────────────────
@@ -205,4 +205,105 @@ class TestInsertRejectedRows:
         with patch("src.db.psycopg2.extras.execute_values", side_effect=Exception("DB error")):
             with pytest.raises(Exception, match="DB error"):
                 db.insert_rejected_rows(rows)
+            mock_conn.rollback.assert_called_once()
+
+
+# ── Database.insert_if_missing_rows() ─────────────────────────────────────────
+
+class TestInsertIfMissingRows:
+    """Tests for the insert-if-missing (ON CONFLICT DO NOTHING) method."""
+
+    @patch("src.db.psycopg2.connect")
+    def test_insert_empty_list_returns_zero(self, mock_connect):
+        """Inserting an empty list should return 0 without hitting the DB."""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_connect.return_value = mock_conn
+
+        db = Database("postgresql://test")
+        db.connect()
+
+        result = db.insert_if_missing_rows([])
+        assert result == 0
+
+    @patch("src.db.psycopg2.connect")
+    def test_insert_if_missing_calls_execute_values_with_do_nothing_sql(self, mock_connect):
+        """insert_if_missing_rows should use ON CONFLICT DO NOTHING SQL."""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_cursor.rowcount = 1
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+
+        db = Database("postgresql://test")
+        db.connect()
+
+        rows = [
+            CommodityPrice(
+                date=date(2026, 4, 19), symbol="GC", name="Gold",
+                open=3100, high=3150, low=3090, close=3120,
+                adjusted_close=3120, volume=1000,
+            ),
+        ]
+
+        with patch("src.db.psycopg2.extras.execute_values") as mock_ev:
+            result = db.insert_if_missing_rows(rows)
+            assert result == 1
+            mock_ev.assert_called_once()
+            # Verify the SQL uses DO NOTHING
+            call_args = mock_ev.call_args
+            sql_used = call_args[0][1]
+            assert "DO NOTHING" in sql_used
+            assert "ON CONFLICT" in sql_used
+
+    @patch("src.db.psycopg2.connect")
+    def test_insert_if_missing_returns_rowcount(self, mock_connect):
+        """insert_if_missing_rows should return cursor.rowcount (actual inserts)."""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_cursor.rowcount = 0  # All rows already existed
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+
+        db = Database("postgresql://test")
+        db.connect()
+
+        rows = [
+            CommodityPrice(
+                date=date(2026, 4, 19), symbol="GC", name="Gold",
+                open=3100, high=3150, low=3090, close=3120,
+                adjusted_close=3120, volume=1000,
+            ),
+        ]
+
+        with patch("src.db.psycopg2.extras.execute_values"):
+            result = db.insert_if_missing_rows(rows)
+            # rowcount=0 means all rows already existed (skipped)
+            assert result == 0
+
+    @patch("src.db.psycopg2.connect")
+    def test_insert_if_missing_rollback_on_error(self, mock_connect):
+        """insert_if_missing_rows should rollback on error."""
+        mock_conn = MagicMock()
+        mock_conn.closed = False
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_conn
+
+        db = Database("postgresql://test")
+        db.connect()
+
+        rows = [
+            CommodityPrice(
+                date=date(2026, 4, 19), symbol="GC", name="Gold",
+                open=3100, high=3150, low=3090, close=3120,
+                adjusted_close=3120, volume=1000,
+            ),
+        ]
+
+        with patch("src.db.psycopg2.extras.execute_values", side_effect=Exception("DB error")):
+            with pytest.raises(Exception, match="DB error"):
+                db.insert_if_missing_rows(rows)
             mock_conn.rollback.assert_called_once()

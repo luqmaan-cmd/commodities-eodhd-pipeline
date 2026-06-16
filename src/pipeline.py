@@ -190,11 +190,16 @@ def _process_commodity_daily(
     db_url: str,
     from_date: Optional[date] = None,
     to_date: Optional[date] = None,
+    primary_date: Optional[date] = None,
 ) -> CommodityRunResult:
     """Fetch, validate, and upsert data for a single commodity (daily mode).
 
-    Uses DB-based prev_close lookup (only 1 row per commodity, so the
+    Uses DB-based prev_close lookup (only 1 row per commodity per day, so the
     per-row DB query overhead is negligible for daily runs).
+
+    When primary_date is set, rows are split into two groups:
+      - Primary rows (date == primary_date): upserted normally (replaces if exists)
+      - Lookback rows (date < primary_date): inserted only if missing (DO NOTHING)
 
     Creates its own Database connection (thread-safe for parallel workers).
 
@@ -204,6 +209,8 @@ def _process_commodity_daily(
         db_url: PostgreSQL connection string (each worker creates its own conn).
         from_date: Optional start date.
         to_date: Optional end date.
+        primary_date: The primary target date. Rows on this date are upserted;
+                      rows before it are only inserted if missing.
 
     Returns:
         CommodityRunResult with stats.
@@ -231,7 +238,7 @@ def _process_commodity_daily(
         all_warnings: list[str] = []
 
         for price in prices:
-            # Daily mode: only 1 row per commodity, so DB lookup is fine
+            # Daily mode: only 1 row per commodity per day, so DB lookup is fine
             prev_close = db.get_previous_close(commodity.symbol, price.date.isoformat())
 
             validation = validate_row(
@@ -273,10 +280,28 @@ def _process_commodity_daily(
                     f"Failed to insert rejected rows for {commodity.symbol}: {exc}"
                 )
 
-        # ── Upsert ────────────────────────────────────────────────────────
+        # ── Upsert / Insert-if-missing ────────────────────────────────────
         if valid_rows:
-            upserted = db.upsert_rows(valid_rows)
-            result.rows_upserted = upserted
+            if primary_date is not None:
+                # Split rows: primary date → upsert, lookback dates → insert-if-missing
+                primary_rows = [r for r in valid_rows if r.date == primary_date]
+                lookback_rows = [r for r in valid_rows if r.date < primary_date]
+
+                if primary_rows:
+                    upserted = db.upsert_rows(primary_rows)
+                    result.rows_upserted = upserted
+
+                if lookback_rows:
+                    backfilled = db.insert_if_missing_rows(lookback_rows)
+                    result.rows_backfilled = backfilled
+                    logger.info(
+                        f"Lookback for {commodity.symbol}: "
+                        f"{backfilled}/{len(lookback_rows)} rows backfilled"
+                    )
+            else:
+                # No primary_date set — upsert everything (backward compatible)
+                upserted = db.upsert_rows(valid_rows)
+                result.rows_upserted = upserted
 
     except Exception as exc:
         result.status = "failed"
@@ -420,6 +445,10 @@ def run_daily(
 
     target_date_str = target_date.isoformat()
 
+    # Lookback window: fetch target_date plus the 2 prior days.
+    # The 2 prior days are only inserted if missing (not replaced).
+    lookback_from = target_date - timedelta(days=2)
+
     commodities = load_commodities(config_path)
     client = EODHDClient(api_key)
     alerter = Alerter(slack_webhook_url)
@@ -442,7 +471,8 @@ def run_daily(
                 executor.submit(
                     _process_commodity_daily,
                     commodity, client, db_url,
-                    from_date=target_date, to_date=target_date,
+                    from_date=lookback_from, to_date=target_date,
+                    primary_date=target_date,
                 ): commodity.symbol
                 for commodity in commodities
             }
@@ -471,6 +501,7 @@ def run_daily(
                     alerter.alert_api_errors(symbol, result.error or "unknown error")
 
                 summary.total_rows_upserted += result.rows_upserted
+                summary.total_rows_backfilled += result.rows_backfilled
                 summary.total_rows_rejected += result.rows_rejected
 
         # ── Post-ingestion validation (sequential, after all workers done) ──
@@ -503,7 +534,7 @@ def run_daily(
         )
 
     # ── Alert: Zero data ingested on a trading day (silent failure) ───────
-    if summary.total_rows_upserted == 0 and is_trading_day(target_date):
+    if summary.total_rows_upserted == 0 and summary.total_rows_backfilled == 0 and is_trading_day(target_date):
         alerter.alert_zero_data_ingested(target_date_str)
 
     # ── Alert: Success summary (always fires) ─────────────────────────────
@@ -516,6 +547,7 @@ def run_daily(
         failed=summary.failed,
         failed_symbols=summary.failed_symbols,
         total_rows_upserted=summary.total_rows_upserted,
+        total_rows_backfilled=summary.total_rows_backfilled,
         total_rows_rejected=summary.total_rows_rejected,
         run_duration_seconds=summary.run_duration_seconds,
     )
