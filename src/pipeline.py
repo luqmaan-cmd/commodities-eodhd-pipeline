@@ -447,7 +447,7 @@ def run_daily(
 
     # Lookback window: fetch target_date plus the 2 prior days.
     # The 2 prior days are only inserted if missing (not replaced).
-    lookback_from = target_date - timedelta(days=2)
+    lookback_from = target_date - timedelta(days=5)
 
     commodities = load_commodities(config_path)
     client = EODHDClient(api_key)
